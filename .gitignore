@@ -50,3 +50,13 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+scheduler
+scheduler_io
+work1
+work2
+work3
+work4
+work5
+work6
+work7
+work5x2_io
