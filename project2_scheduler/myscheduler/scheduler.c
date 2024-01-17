@@ -8,8 +8,9 @@
 #include <sys/types.h>
 #include <wait.h>
 #include <time.h>
+#include <sys/mman.h>
 
-#define NAMESIZE 50
+#define NAMESIZE 250
 #define N_PROCESSES 50
 
 // A linked list node to store a process
@@ -30,6 +31,7 @@ struct processNode* newProcess(char *name, pid_t pid){
     struct processNode* temp 
         = (struct processNode*)malloc(sizeof(struct processNode));
     strcpy(temp->name, name);
+    temp->pid = pid;
     temp->next = NULL;
     temp->prev = NULL;
     return temp;
@@ -37,9 +39,9 @@ struct processNode* newProcess(char *name, pid_t pid){
 
 // Initialize the queue
 struct queue* createQueue() {
-    struct queue* q =
-        (struct queue*)malloc(sizeof(struct queue*));
-    q->head = q->tail = NULL;
+    struct queue* q = mmap(NULL, sizeof(struct queue*), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    q->head = NULL;
+    q->tail = NULL;
     return q;
 }
 
@@ -48,10 +50,13 @@ void enqueue(struct queue* q, char *name, pid_t pid){
 
     // Create new process node
     struct processNode* temp = newProcess(name, pid);
+    //printf("\n%s", temp->name);
+    //printf("\n%d", temp->pid);
 
     // If queue is empty initialize head and tail
     if (q->tail == NULL) {
-        q->head = q->tail = temp;
+        q->head = temp;
+        q->tail = temp;
         return;
     }
 
@@ -87,11 +92,13 @@ int main(int argc, char **argv) {
     printf("input: %s\n", argv[argc-1]); 
 
     FILE *fp;
-    char *line = NULL;
+    //char *line = NULL;
+    char *line = "Hello world!";
     size_t len = 0;
     ssize_t readline;
     pid_t pid[N_PROCESSES];
-    int i;
+    int i, lines = 0;
+    char ch;
 
     // Check input
     if (argc < 2)
@@ -102,12 +109,30 @@ int main(int argc, char **argv) {
     if (fp == NULL)
         exit(EXIT_FAILURE);
 
+    // count number of lines in FILE
+    while(!feof(fp))
+    {
+        ch = fgetc(fp);
+        if(ch == '\n')
+        {
+            lines++;
+        }
+    }
+    printf("\nNumber of lines in file: %i", lines);
+
+    // reset pointer to start of FILE
+    rewind(fp);
+
+    // make shared memory for the queue
+
     // Initiate queue
     struct queue* q = createQueue();
 
     i = -1;
-    while ((readline = getline(&line, &len, fp)) != -1) {
+    //while ((readline = getline(&line, &len, fp)) != -1) {
+    for (int k=0; k<4; k++) {
         i++;
+        printf("\n Line Number %i: %s and my pid is %d", i, line, getpid());
         //remove trailing newline
         if (line[strlen(line) - 1] == '\n')
             line[strlen(line) - 1] = '\0';
@@ -120,27 +145,33 @@ int main(int argc, char **argv) {
         // child
         else if (pid[i] == 0) {
             enqueue(q, line, getpid());
+            printf("\nI am child number %d and my id is: %d", i, getpid());
             break;
         }
         // parent
         else {
+            printf("\nI am the parent fork returned %d", pid[i]);
         }
     }
 
-    free(line);
+    for (int i=0; i<lines; i++){
+        wait(NULL);
+    }
+    //free(line);
     fclose(fp);
 
     struct processNode* k = q->head;
 
     // Print entire queue
     while (k != q->tail) {
-        printf("\n%s", k->name);
+        //printf("\n%s", k->name);
+        //printf("\n%d", k->pid);
         k = k->next;
     }; 
 
-    printf("\n%s", q->tail->name);
+    //printf("\n%s", q->tail->name);
 
-    free(q);
+    munmap(q, sizeof(struct queue*));
 
     // TODO: Schedule
 
