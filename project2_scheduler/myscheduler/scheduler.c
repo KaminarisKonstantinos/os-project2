@@ -16,6 +16,7 @@
 struct processNode {
     char name[NAMESIZE];
     struct processNode* next;
+    pid_t pid;
     struct processNode* prev;
 };
 
