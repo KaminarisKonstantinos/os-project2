@@ -8,16 +8,20 @@
 #include <sys/types.h>
 #include <wait.h>
 #include <time.h>
-#include <sys/mman.h>
 
 #define NAMESIZE 250
 #define N_PROCESSES 50
+#define NEW 1
+#define RUNNING 2
+#define STOPPED 3
+#define EXITED 4
 
 // A linked list node to store a process
 struct processNode {
     char name[NAMESIZE];
     struct processNode* next;
     pid_t pid;
+    int status;
     struct processNode* prev;
 };
 
@@ -27,31 +31,30 @@ struct queue {
 };
 
 // Create a new linked list node
-struct processNode* newProcess(char *name, pid_t pid){
+struct processNode* newProcess(char *name){
     struct processNode* temp 
         = (struct processNode*)malloc(sizeof(struct processNode));
     strcpy(temp->name, name);
-    temp->pid = pid;
     temp->next = NULL;
+    temp->status = NEW;
     temp->prev = NULL;
     return temp;
 }
 
 // Initialize the queue
 struct queue* createQueue() {
-    struct queue* q = mmap(NULL, sizeof(struct queue*), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    struct queue* q 
+        = (struct queue*)malloc(sizeof(struct queue*));
     q->head = NULL;
     q->tail = NULL;
     return q;
 }
 
 // Enqueue a process
-void enqueue(struct queue* q, char *name, pid_t pid){
+void enqueue(struct queue* q, char *name){
 
     // Create new process node
-    struct processNode* temp = newProcess(name, pid);
-    //printf("\n%s", temp->name);
-    //printf("\n%d", temp->pid);
+    struct processNode* temp = newProcess(name);
 
     // If queue is empty initialize head and tail
     if (q->tail == NULL) {
@@ -87,16 +90,32 @@ void dequeue(struct queue* q){
     return;
 }
 
+void execute(struct processNode* process) {
+    if (process->status == NEW) {
+        printf("I'm new!\n");
+        pid_t pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        else if (pid == 0) {
+            execlp(process->name, process->name, NULL);
+        }
+        else {
+            process->pid = pid;
+            wait(NULL);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     printf("Implement the scheduler here!\n");
     printf("input: %s\n", argv[argc-1]); 
 
     FILE *fp;
-    //char *line = NULL;
-    char *line = "Hello world!";
+    char *line = NULL;
     size_t len = 0;
     ssize_t readline;
-    pid_t pid[N_PROCESSES];
     int i, lines = 0;
     char ch;
 
@@ -118,40 +137,21 @@ int main(int argc, char **argv) {
             lines++;
         }
     }
-    printf("\nNumber of lines in file: %i", lines);
+    printf("Number of lines in file: %i\n", lines);
 
     // reset pointer to start of FILE
     rewind(fp);
-
-    // make shared memory for the queue
 
     // Initiate queue
     struct queue* q = createQueue();
 
     i = -1;
-    //while ((readline = getline(&line, &len, fp)) != -1) {
-    for (int k=0; k<4; k++) {
+    while ((readline = getline(&line, &len, fp)) != -1) {
         i++;
-        printf("\n Line Number %i: %s and my pid is %d", i, line, getpid());
         //remove trailing newline
         if (line[strlen(line) - 1] == '\n')
             line[strlen(line) - 1] = '\0';
-        pid[i] = fork();
-        // fork gone wrong
-        if (pid[i] == -1) {
-            perror("fork");
-            exit(EXIT_FAILURE);
-        }
-        // child
-        else if (pid[i] == 0) {
-            enqueue(q, line, getpid());
-            printf("\nI am child number %d and my id is: %d", i, getpid());
-            break;
-        }
-        // parent
-        else {
-            printf("\nI am the parent fork returned %d", pid[i]);
-        }
+        enqueue(q, line);
     }
 
     for (int i=0; i<lines; i++){
@@ -162,18 +162,21 @@ int main(int argc, char **argv) {
 
     struct processNode* k = q->head;
 
+    // TODO: Schedule
+
     // Print entire queue
     while (k != q->tail) {
-        //printf("\n%s", k->name);
-        //printf("\n%d", k->pid);
+        execute(k);
+        printf("%s\n", k->name);
+        printf("%d\n", k->pid);
+        printf("%d\n", k->status);
         k = k->next;
     }; 
 
-    //printf("\n%s", q->tail->name);
-
-    munmap(q, sizeof(struct queue*));
-
-    // TODO: Schedule
+    execute(k);
+    printf("%s\n", q->tail->name);
+    printf("%d\n", q->tail->pid);
+    printf("%d\n", q->tail->status);
 
     return 0;
 }
