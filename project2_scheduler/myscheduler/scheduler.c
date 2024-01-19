@@ -30,6 +30,11 @@ struct queue {
     struct processNode *head, *tail;
 };
 
+struct queue q = {
+    NULL,
+    NULL
+};
+
 // Create a new linked list node
 struct processNode* newProcess(char *name){
     struct processNode* temp 
@@ -48,7 +53,7 @@ struct queue* createQueue() {
     q->head = NULL;
     q->tail = NULL;
     return q;
-}
+};
 
 // Enqueue a process
 void enqueue(struct queue* q, char *name){
@@ -71,7 +76,7 @@ void enqueue(struct queue* q, char *name){
 }
 
 // Dequeue a process
-void dequeue(struct queue* q){
+void remove_from_queue(struct queue* q, pid_t pid){
 
     // If queue is empty return NULL
     if (q->head == NULL)
@@ -91,26 +96,55 @@ void dequeue(struct queue* q){
 }
 
 void execute(struct processNode* process) {
+
+    pid_t pid; 
+
+    // process is new
     if (process->status == NEW) {
         printf("I'm new!\n");
-        pid_t pid = fork();
+        pid = fork();
         if (pid == -1) {
             perror("fork");
             exit(EXIT_FAILURE);
         }
         else if (pid == 0) {
             execlp(process->name, process->name, NULL);
+            exit(EXIT_SUCCESS);
         }
         else {
             process->pid = pid;
-            wait(NULL);
+            process->status = RUNNING;
         }
+    }
+    // process was stopped
+    else {
+        kill(process->pid, SIGCONT);
     }
 }
 
+void rr_scheduler(struct queue* q, double quantum) {
+
+    struct processNode* k = q->head;
+    struct timespec remaining, request = {1, 0};
+
+    while (k != NULL) {
+        execute(k);
+        printf("%s\n", k->name);
+        nanosleep(&request, &remaining);
+        kill(k->pid, SIGSTOP);
+        k = k->next;
+        if (k == NULL)
+            k = q->head;
+    }; 
+
+}
+
+void sigchld_handler(int signo) {
+    printf("hello from handler (%d)\nMy pid is (%d)", signo, getpid());
+    dequeue(&q);
+}
+
 int main(int argc, char **argv) {
-    printf("Implement the scheduler here!\n");
-    printf("input: %s\n", argv[argc-1]); 
 
     FILE *fp;
     char *line = NULL;
@@ -118,6 +152,16 @@ int main(int argc, char **argv) {
     ssize_t readline;
     int i, lines = 0;
     char ch;
+
+    struct sigaction sigact;                                        
+    sigemptyset( &sigact.sa_mask );                                 
+    sigact.sa_flags = 0;
+    sigact.sa_flags = sigact.sa_flags | SA_RESTART;
+    sigact.sa_handler = sigchld_handler;
+    if (sigaction(SIGCHLD, &sigact, NULL) == -1) {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
 
     // Check input
     if (argc < 2)
@@ -153,6 +197,8 @@ int main(int argc, char **argv) {
             line[strlen(line) - 1] = '\0';
         enqueue(q, line);
     }
+    // queue is a loop
+    q->tail->next = q->head;
 
     for (int i=0; i<lines; i++){
         wait(NULL);
@@ -160,23 +206,7 @@ int main(int argc, char **argv) {
     //free(line);
     fclose(fp);
 
-    struct processNode* k = q->head;
-
-    // TODO: Schedule
-
-    // Print entire queue
-    while (k != q->tail) {
-        execute(k);
-        printf("%s\n", k->name);
-        printf("%d\n", k->pid);
-        printf("%d\n", k->status);
-        k = k->next;
-    }; 
-
-    execute(k);
-    printf("%s\n", q->tail->name);
-    printf("%d\n", q->tail->pid);
-    printf("%d\n", q->tail->status);
+    rr_scheduler(q, 10e10);
 
     return 0;
 }
