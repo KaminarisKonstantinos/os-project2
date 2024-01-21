@@ -2,6 +2,7 @@
 // 236064 1041756 Kaminaris Konstantinos
 //###############################################################
 #include <bits/types/siginfo_t.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,7 @@
 #include <sys/types.h>
 #include <wait.h>
 #include <time.h>
+#include <limits.h>
 
 #define NAMESIZE 250
 #define N_PROCESSES 50
@@ -23,6 +25,7 @@ struct processNode {
     struct processNode* next;
     pid_t pid;
     int status;
+    clock_t start_time, end_time;
     struct processNode* prev;
 };
 
@@ -44,6 +47,7 @@ struct processNode* newProcess(char *name){
     temp->next = NULL;
     temp->status = NEW;
     temp->prev = NULL;
+    temp->start_time = clock();
     return temp;
 }
 
@@ -76,6 +80,13 @@ void enqueue(struct queue* q, char *name){
     return;
 }
 
+// print info
+void print_info(struct processNode* k) {
+    k->end_time = clock();
+    double time_elapsed = ((double) (k->end_time - k->start_time));
+    printf("Name: %s\nPID: [%d]\nTime: %f\n", k->name, k->pid, time_elapsed/CLOCKS_PER_SEC);
+}
+
 // Dequeue a process
 void remove_from_queue(struct queue* q, pid_t pid){
 
@@ -87,6 +98,7 @@ void remove_from_queue(struct queue* q, pid_t pid){
 
     // if there is only one element, empty all the things
     if (q->head == q->tail) {
+        print_info(q->head);
         q->head->next = q->head->prev = NULL;
         free(q->head);
         q->head = q->tail = NULL;
@@ -96,7 +108,6 @@ void remove_from_queue(struct queue* q, pid_t pid){
     struct processNode* temp = q->head;
 
     while (temp->pid != pid && temp != q->tail) {
-        printf("Looking... [%d]\n", temp->pid);
         temp = temp->next;
     }
 
@@ -105,6 +116,7 @@ void remove_from_queue(struct queue* q, pid_t pid){
         return;
 
     // remove from queue
+    print_info(temp);
     temp->prev->next = temp->next;
     temp->next->prev = temp->prev;
 
@@ -117,14 +129,14 @@ void remove_from_queue(struct queue* q, pid_t pid){
     // Free memory
     free(temp);
 
-    temp = q->head;
-    printf("This is the queue now\n");
-    while (temp != q->tail) {
-        printf("Name: %s, Pid: [%d]\n", temp->name, temp->pid);
-        temp = temp->next;
-    }
-
-    printf("Name: %s, Pid: [%d]\n", temp->name, temp->pid);
+//    temp = q->head;
+//    printf("This is the queue now\n");
+//    while (temp != q->tail) {
+//        printf("Name: %s, Pid: [%d]\n", temp->name, temp->pid);
+//        temp = temp->next;
+//    }
+//
+//    printf("Name: %s, Pid: [%d]\n", temp->name, temp->pid);
 
     return;
 }
@@ -153,13 +165,17 @@ void execute(struct processNode* process) {
     // process was stopped
     else {
         kill(process->pid, SIGCONT);
+        process->status = RUNNING;
     }
 }
 
-void rr_scheduler(struct queue* q, double quantum) {
+void rr_scheduler(struct queue* q, unsigned long long quantum) {
 
     struct processNode* k = q->head;
-    struct timespec remaining, request = {1, 0};
+    struct timespec remaining, request;
+    request.tv_sec = quantum/1000;
+    quantum = quantum%1000;
+    request.tv_nsec = quantum * 1000000;
 
     while (k != NULL) {
         execute(k);
@@ -167,13 +183,13 @@ void rr_scheduler(struct queue* q, double quantum) {
         printf("%i\n", k->pid);
         nanosleep(&request, &remaining);
         kill(k->pid, SIGSTOP);
+        k->status = STOPPED;
         k = k->next;
     }; 
 
 }
 
 void sigchld_handler(int signo, siginfo_t *si, void *unused) {
-    printf("hello from handler (%d)\nI was called by (%d)\n", signo, si->si_pid);
     remove_from_queue(&q, si->si_pid);
 }
 
@@ -238,7 +254,10 @@ int main(int argc, char **argv) {
     //free(line);
     fclose(fp);
 
-    rr_scheduler(&q, 10e10);
+    if (argc == 3)
+        rr_scheduler(&q, ULLONG_MAX);
+    else
+        rr_scheduler(&q, strtoull(argv[2], NULL, 10));
 
     printf("ALL DONE!!\n");
 
