@@ -37,6 +37,7 @@ struct queue {
     struct processNode *head, *tail;
 };
 
+// global pointer to the queue (it is global by nessecity)
 struct queue q = {
     NULL,
     NULL
@@ -50,18 +51,10 @@ struct processNode* newProcess(char *name){
     temp->next = NULL;
     temp->status = NEW;
     temp->prev = NULL;
+    // start timer
     clock_gettime(CLOCK_MONOTONIC, &temp->start_time);
     return temp;
 }
-
-// Initialize the queue
-struct queue* createQueue() {
-    struct queue* q 
-        = (struct queue*)malloc(sizeof(struct queue*));
-    q->head = NULL;
-    q->tail = NULL;
-    return q;
-};
 
 // Enqueue a process
 void enqueue(struct queue* q, char *name){
@@ -85,8 +78,9 @@ void enqueue(struct queue* q, char *name){
 
 // print info
 void print_info(struct processNode* k) {
-    //printf("Dequeue process with name %s\n", k->name);
+    // end timer
     clock_gettime(CLOCK_MONOTONIC, &k->end_time);
+    // calculate elapsed time
     int secs = k->end_time.tv_sec-k->start_time.tv_sec;
     int ms = (k->end_time.tv_nsec-k->start_time.tv_nsec)/1000;
     double res = (double)(secs + (double)ms/1000000);
@@ -106,7 +100,6 @@ void remove_from_queue(struct queue* q, pid_t pid){
     if (q->head == q->tail) {
         print_info(q->head);
         q->head->next = q->head->prev = NULL;
-        // TODO////////////////////////////////CHANGE TO WORKLOAD TIME
         printf("WORKLOAD TIME: %.2f secs\n", q->head->elapsed_time);
         free(q->head);
         q->head = q->tail = NULL;
@@ -115,6 +108,7 @@ void remove_from_queue(struct queue* q, pid_t pid){
 
     struct processNode* temp = q->head;
 
+    // find the node with given pid
     while (temp->pid != pid && temp != q->tail) {
         temp = temp->next;
     }
@@ -140,6 +134,7 @@ void remove_from_queue(struct queue* q, pid_t pid){
     return;
 }
 
+// execute the process
 void execute(struct processNode* process, struct timespec request,
              struct timespec remaining) {
 
@@ -152,38 +147,49 @@ void execute(struct processNode* process, struct timespec request,
             perror("fork");
             exit(EXIT_FAILURE);
         }
+        // child
         else if (pid == 0) {
             execlp(process->name, process->name, NULL);
             exit(EXIT_SUCCESS);
         }
+        // parent
         else {
             printf("executing %s\n", process->name);
             process->pid = pid;
             process->status = RUNNING;
+            // wait the quantum
             nanosleep(&request, &remaining);
         }
     }
+    // process is performing io
     else if (process->status == BLOCKED) {
+        // do nothing
     }
     // process was stopped
     else if (process->status == STOPPED) {
         printf("executing %s\n", process->name);
         kill(process->pid, SIGCONT);
         process->status = RUNNING;
+        // wait the quantum
         nanosleep(&request, &remaining);
     }
 }
 
+// rr scheduler, quantum is given in miliseconds 
+// (fcfs is performed with very big quantum)
 void rr_scheduler(struct queue* q, unsigned long long quantum) {
 
     struct processNode* k = q->head;
     struct timespec remaining, request;
+    // calculate tv_sec and tv_nsec
     request.tv_sec = quantum/1000;
     quantum = quantum%1000;
     request.tv_nsec = quantum * 1000000;
 
+    // schedule every process in order until the list is empty
     while (k != NULL) {
         execute(k, request, remaining);
+        // only stop the process if its not blocked
         if (k->status == RUNNING) {
             kill(k->pid, SIGSTOP);
             k->status = STOPPED;
@@ -195,10 +201,12 @@ void rr_scheduler(struct queue* q, unsigned long long quantum) {
 
 }
 
+// mark process as blocked for io
 void make_blocked(struct queue* q, pid_t pid) {
 
     struct processNode* k = q->head;
 
+    // find process with given pid
     while (k != q->tail && k->pid != pid) {
         k = k->next;
     }
@@ -210,10 +218,12 @@ void make_blocked(struct queue* q, pid_t pid) {
     return;
 }
 
+// mark process as unblocked when io finishes
 void make_unblocked(struct queue* q, pid_t pid) {
 
     struct processNode* k = q->head;
 
+    // find process with given pid
     while (k != q->tail && k->pid != pid) {
         k = k->next;
     }
@@ -225,27 +235,32 @@ void make_unblocked(struct queue* q, pid_t pid) {
     return;
 }
 
+// handle SIGCHLD
 void sigchld_handler(int signo, siginfo_t *si, void *unused) {
     remove_from_queue(&q, si->si_pid);
 }
 
+// handle SIGUSR1
 void sigusr1_handler(int signo, siginfo_t *si, void *unused) {
     make_blocked(&q, si->si_pid);
 }
 
+// handle SIGUSR2
 void sigusr2_handler(int signo, siginfo_t *si, void *unused) {
     make_unblocked(&q, si->si_pid);
 }
 
+// putting it all together
 int main(int argc, char **argv) {
 
     FILE *fp;
     char *line = NULL;
     size_t len = 0;
     ssize_t readline;
-    int i, lines = 0;
+    int lines = 0;
     char ch;
 
+    // set sigaction for SIGCHLD
     struct sigaction sachld;                                        
     sigemptyset( &sachld.sa_mask );                                 
     sachld.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
@@ -255,6 +270,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    // set sigaction for SIGUSR1
     struct sigaction sausr1;                                        
     sigemptyset( &sausr1.sa_mask );                                 
     sausr1.sa_flags = SA_SIGINFO | SA_RESTART;
@@ -264,6 +280,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    // set sigaction for SIGUSR2
     struct sigaction sausr2;                                        
     sigemptyset( &sausr2.sa_mask );                                 
     sausr2.sa_flags = SA_SIGINFO | SA_RESTART;
@@ -283,23 +300,17 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
 
     // count number of lines in FILE
-    while(!feof(fp))
-    {
+    while(!feof(fp)) {
         ch = fgetc(fp);
         if(ch == '\n')
-        {
             lines++;
-        }
     }
 
     // reset pointer to start of FILE
     rewind(fp);
 
-    // Initiate queue
-
-    i = -1;
+    // populate queue
     while ((readline = getline(&line, &len, fp)) != -1) {
-        i++;
         //remove trailing newline
         if (line[strlen(line) - 1] == '\n')
             line[strlen(line) - 1] = '\0';
@@ -309,14 +320,13 @@ int main(int argc, char **argv) {
     q.tail->next = q.head;
     q.head->prev = q.tail;
 
-    for (int i=0; i<lines; i++){
-        wait(NULL);
-    }
     //free(line);
     fclose(fp);
 
+    // fcfs (quantum is very big)
     if (argc == 3)
         rr_scheduler(&q, ULLONG_MAX);
+    // round robin with given quantum
     else
         rr_scheduler(&q, strtoull(argv[2], NULL, 10));
 
