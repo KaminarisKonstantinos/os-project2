@@ -23,10 +23,11 @@
 struct processNode {
     char name[NAMESIZE];
     struct processNode* next;
+    struct processNode* prev;
     pid_t pid;
     int status;
-    clock_t start_time, end_time;
-    struct processNode* prev;
+    struct timespec start_time, end_time;
+    double elapsed_time;
 };
 
 // The queue, head is the first and tail is the last element
@@ -47,7 +48,7 @@ struct processNode* newProcess(char *name){
     temp->next = NULL;
     temp->status = NEW;
     temp->prev = NULL;
-    temp->start_time = clock();
+    clock_gettime(CLOCK_MONOTONIC, &temp->start_time);
     return temp;
 }
 
@@ -82,15 +83,18 @@ void enqueue(struct queue* q, char *name){
 
 // print info
 void print_info(struct processNode* k) {
-    k->end_time = clock();
-    double time_elapsed = ((double) (k->end_time - k->start_time));
-    printf("Name: %s\nPID: [%d]\nTime: %f\n", k->name, k->pid, time_elapsed/CLOCKS_PER_SEC);
+    //printf("Dequeue process with name %s\n", k->name);
+    clock_gettime(CLOCK_MONOTONIC, &k->end_time);
+    int secs = k->end_time.tv_sec-k->start_time.tv_sec;
+    int ms = (k->end_time.tv_nsec-k->start_time.tv_nsec)/1000;
+    double res = (double)(secs + (double)ms/1000000);
+    k->elapsed_time = res;
+    printf("PID: [%d] - CMD: %s\n\tElapsed time: %.2f secs\n", 
+           k->pid, k->name, k->elapsed_time);
 }
 
 // Dequeue a process
 void remove_from_queue(struct queue* q, pid_t pid){
-
-    printf("I'm trying to remove pid [%d]\n", pid);
 
     // if queue is empty return null
     if (q->head == NULL)
@@ -100,6 +104,8 @@ void remove_from_queue(struct queue* q, pid_t pid){
     if (q->head == q->tail) {
         print_info(q->head);
         q->head->next = q->head->prev = NULL;
+        // TODO////////////////////////////////CHANGE TO WORKLOAD TIME
+        printf("WORKLOAD TIME: %.2f secs\n", q->head->elapsed_time);
         free(q->head);
         q->head = q->tail = NULL;
         return;
@@ -129,15 +135,6 @@ void remove_from_queue(struct queue* q, pid_t pid){
     // Free memory
     free(temp);
 
-//    temp = q->head;
-//    printf("This is the queue now\n");
-//    while (temp != q->tail) {
-//        printf("Name: %s, Pid: [%d]\n", temp->name, temp->pid);
-//        temp = temp->next;
-//    }
-//
-//    printf("Name: %s, Pid: [%d]\n", temp->name, temp->pid);
-
     return;
 }
 
@@ -147,7 +144,6 @@ void execute(struct processNode* process) {
 
     // process is new
     if (process->status == NEW) {
-        printf("I'm new!\n");
         pid = fork();
         if (pid == -1) {
             perror("fork");
@@ -158,12 +154,14 @@ void execute(struct processNode* process) {
             exit(EXIT_SUCCESS);
         }
         else {
+            printf("executing %s\n", process->name);
             process->pid = pid;
             process->status = RUNNING;
         }
     }
     // process was stopped
     else {
+        printf("executing %s\n", process->name);
         kill(process->pid, SIGCONT);
         process->status = RUNNING;
     }
@@ -179,13 +177,13 @@ void rr_scheduler(struct queue* q, unsigned long long quantum) {
 
     while (k != NULL) {
         execute(k);
-        printf("%s\n", k->name);
-        printf("%i\n", k->pid);
         nanosleep(&request, &remaining);
         kill(k->pid, SIGSTOP);
         k->status = STOPPED;
         k = k->next;
     }; 
+
+    printf("scheduler exits\n");
 
 }
 
@@ -202,11 +200,11 @@ int main(int argc, char **argv) {
     int i, lines = 0;
     char ch;
 
-    struct sigaction sigact;                                        
-    sigemptyset( &sigact.sa_mask );                                 
-    sigact.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
-    sigact.sa_sigaction = sigchld_handler;
-    if (sigaction(SIGCHLD, &sigact, NULL) == -1) {
+    struct sigaction sachld;                                        
+    sigemptyset( &sachld.sa_mask );                                 
+    sachld.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
+    sachld.sa_sigaction = sigchld_handler;
+    if (sigaction(SIGCHLD, &sachld, NULL) == -1) {
         perror("sigaction");
         exit(EXIT_FAILURE);
     }
@@ -229,7 +227,6 @@ int main(int argc, char **argv) {
             lines++;
         }
     }
-    printf("Number of lines in file: %i\n", lines);
 
     // reset pointer to start of FILE
     rewind(fp);
@@ -258,8 +255,6 @@ int main(int argc, char **argv) {
         rr_scheduler(&q, ULLONG_MAX);
     else
         rr_scheduler(&q, strtoull(argv[2], NULL, 10));
-
-    printf("ALL DONE!!\n");
 
     return 0;
 }
