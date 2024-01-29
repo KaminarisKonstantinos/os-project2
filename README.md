@@ -33,3 +33,11 @@ To run the project on your machine, follow these steps:
    ```
 
 Happy coding!
+
+## Documentation in Greek
+
+For detailed information in Greek, refer to the following documents:
+
+- **Original Assignment:** Find the original project assignment in Greek within Part 2 of the [`Project2-OS-2023-2024.pdf`](Project2-OS-2023-2024.pdf) file.
+
+- **Project Report:** Access my detailed report, written in Greek, in Part 2 of the [`OS_Report2.pdf`](OS_Report2.pdf) file.
