@@ -15,11 +15,8 @@
 
 #define NAMESIZE 250
 #define N_PROCESSES 50
-#define NEW 1
-#define RUNNING 2
-#define STOPPED 3
-#define EXITED 4
-#define BLOCKED 5
+
+enum status {NEW, RUNNING, STOPPED, EXITED, BLOCKED};
 
 // A linked list node to store a process
 struct processNode {
