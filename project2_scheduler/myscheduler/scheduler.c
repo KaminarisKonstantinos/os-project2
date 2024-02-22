@@ -145,7 +145,8 @@ void execute(struct processNode* process, struct timespec request,
         }
         // child
         else if (pid == 0) {
-            execlp(process->name, process->name, NULL);
+            char* arr[] = {process->name, NULL};
+            execv(process->name, arr);
             exit(EXIT_SUCCESS);
         }
         // parent
